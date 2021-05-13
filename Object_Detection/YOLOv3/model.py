@@ -23,14 +23,17 @@ class ConvLayer(nn.Module):
 class Residual_Block(nn.Module):
 
     def __init__(self, in_channels):
-        super().__init__()
+        super(Residual_Block, self).__init__()
         self.conv_block = nn.Sequential(
             ConvLayer(in_channels, in_channels // 2, 1, 1, 0),
             ConvLayer(in_channels // 2, in_channels, 3, 1, 1)
         )
 
     def forward(self, x):
-        return self.conv_block(x)
+        residual = x
+        out = self.conv_block(x)
+        out += residual
+        return out
 
 
 class Conv_Block(nn.Module):
@@ -55,7 +58,7 @@ class Conv_Out(nn.Module):
         super(Conv_Out, self).__init__()
         self.conv_out = nn.Sequential(
             ConvLayer(in_channels, out_channels, 3, 1, 1),
-            ConvLayer(out_channels, num_classes, 1, 1, 0)
+            ConvLayer(out_channels, 3*(num_classes+1+4), 1, 1, 0)
         )
 
     def forward(self, input):
@@ -76,23 +79,23 @@ class Darknet53(nn.Module):
         super(Darknet53, self).__init__()
         self.conv_block = ConvLayer(3, 32, 3, 1, 1)
 
-        self.conv1 = nn.Conv2d(32, 64, 3, 2, 1)
+        self.conv1 = ConvLayer(32, 64, 3, 2, 1)
 
         self.residual_block1 = Residual_Block(64)
 
-        self.conv2 = nn.Conv2d(64, 128, 3, 2, 1)
+        self.conv2 = ConvLayer(64, 128, 3, 2, 1)
 
         self.residual_block2 = Residual_Block(128)
 
-        self.conv3 = nn.Conv2d(128, 256, 3, 2, 1)
+        self.conv3 = ConvLayer(128, 256, 3, 2, 1)
 
         self.residual_block3 = Residual_Block(256)
 
-        self.conv4 = nn.Conv2d(256, 512, 3, 2, 1)
+        self.conv4 = ConvLayer(256, 512, 3, 2, 1)
 
         self.residual_block4 = Residual_Block(512)
 
-        self.conv5 = nn.Conv2d(512, 1024, 3, 2, 1)
+        self.conv5 = ConvLayer(512, 1024, 3, 2, 1)
 
         self.residual_block5 = Residual_Block(1024)
 
@@ -124,8 +127,8 @@ class Darknet53(nn.Module):
 
 class YOLOv3(nn.Module):
 
-    def __init__(self, num_classes=80):
-        super().__init__()
+    def __init__(self, num_classes=1):
+        super(YOLOv3, self).__init__()
         self.backbone = Darknet53()
         self.conv_block_13 = Conv_Block(1024, 512, 1024)
         self.conv_out_13 = Conv_Out(512, 1024, num_classes)
@@ -170,3 +173,6 @@ if __name__ == '__main__':
     input = torch.rand((1, 3, 416, 416))
 
     x = model(input)
+    print(x[0].shape)
+    print(x[1].shape)
+    print(x[2].shape)
