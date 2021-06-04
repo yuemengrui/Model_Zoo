@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 
 class BasicConvBlock(nn.Module):
@@ -14,8 +15,9 @@ class BasicConvBlock(nn.Module):
                       padding=padding),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(),
-            nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride,
-                      padding=padding),
+            nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=(kernel_size[1], kernel_size[0]),
+                      stride=stride,
+                      padding=(padding[1], padding[0])),
             nn.BatchNorm2d(out_channels),
             nn.ReLU()
         )
@@ -25,23 +27,23 @@ class BasicConvBlock(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, num_classes=6):
+    def __init__(self, num_classes=3):
         super(UNet, self).__init__()
-        self.down_sample1 = BasicConvBlock(3, 64, 3, 1, 1)
+        self.down_sample1 = BasicConvBlock(3, 64, (7, 3), 1, (1, 3))
         self.pool = nn.MaxPool2d(kernel_size=2)
-        self.down_sample2 = BasicConvBlock(64, 128, 3, 1, 1)
-        self.down_sample3 = BasicConvBlock(128, 256, 3, 1, 1)
-        self.down_sample4 = BasicConvBlock(256, 512, 3, 1, 1)
-        self.conv_mid = BasicConvBlock(512, 1024, 3, 1, 1)
+        self.down_sample2 = BasicConvBlock(64, 128, (3, 7), 1, (3, 1))
+        self.down_sample3 = BasicConvBlock(128, 256, (7, 3), 1, (1, 3))
+        self.down_sample4 = BasicConvBlock(256, 512, (3, 7), 1, (3, 1))
+        self.conv_mid = BasicConvBlock(512, 1024, (3, 3), 1, (1, 1))
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv_1_1 = nn.Conv2d(1536, 1024, 1, 1, 0)
-        self.up_sample1 = BasicConvBlock(1024, 512, 3, 1, 1)
+        self.up_sample1 = BasicConvBlock(1024, 512, (7, 3), 1, (1, 3))
         self.conv_1_2 = nn.Conv2d(768, 512, 1, 1, 0)
-        self.up_sample2 = BasicConvBlock(512, 256, 3, 1, 1)
+        self.up_sample2 = BasicConvBlock(512, 256, (3, 7), 1, (3, 1))
         self.conv_1_3 = nn.Conv2d(384, 256, 1, 1, 0)
-        self.up_sample3 = BasicConvBlock(256, 128, 3, 1, 1)
+        self.up_sample3 = BasicConvBlock(256, 128, (7, 3), 1, (1, 3))
         self.conv_1_4 = nn.Conv2d(192, 128, 1, 1, 0)
-        self.up_sample4 = BasicConvBlock(128, 64, 3, 1, 1)
+        self.up_sample4 = BasicConvBlock(128, 64, (3, 7), 1, (3, 1))
         self.out = nn.Conv2d(64, num_classes, 1, 1, 0)
 
     def forward(self, input):
@@ -84,9 +86,7 @@ class UNet(nn.Module):
 
 if __name__ == '__main__':
     unet = UNet()
-    input = torch.rand((1, 3, 608, 608))
+    input = torch.rand((1, 3, 64, 64))
 
     out = unet(input)
     print(out.shape)
-    out = torch.softmax(out, dim=1)
-    print(out[:, 1, :, :])
