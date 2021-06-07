@@ -6,22 +6,10 @@ import numpy as np
 
 class SegScore(object):
 
-    def __init__(self, num_classes, pred, label):
-        """
-        :param num_classes:
-        :param pred: [N, H, W]
-        :param label: [N, H, W]
-        """
+    def __init__(self, num_classes):
         self.num_classes = num_classes
         self.confusion_matrix = np.zeros((num_classes, num_classes), dtype="uint64")
         self.ious = dict()
-
-        pred = pred.cpu().numpy()
-        label = label.cpu().numpy()
-
-        assert pred.shape == label.shape
-
-        self.confusion_matrix += self.fast_hist(pred.reshape(-1), label.reshape(-1)).astype("uint64")
 
     def fast_hist(self, a, b):
         """
@@ -50,7 +38,10 @@ class SegScore(object):
         return self.confusion_matrix
 
     def get_ious(self):
-        self.ious = dict(zip(range(self.num_classes), self.per_class_iou()))  # {0: iou, 1: iou, ...}
+        """
+        :return: {0: iou, 1: iou, ...} each class iou
+        """
+        self.ious = dict(zip(range(self.num_classes), self.per_class_iou()))
         return self.ious
 
     def get_miou(self, ignore=None):
@@ -66,18 +57,36 @@ class SegScore(object):
         return total_iou / count
 
     def pixel_accuracy(self):
-        # return all class overall pixel accuracy
-        #  PA = acc = (TP + TN) / (TP + TN + FP + TN)
+        """
+        PA = acc = (TP + TN) / (TP + TN + FP + TN)
+        :return: return all class overall pixel accuracy
+        """
         acc = np.diag(self.confusion_matrix).sum() / self.confusion_matrix.sum()
         return acc
 
     def class_pixel_accuracy(self):
-        # return each category pixel accuracy(A more accurate way to call it precision)
-        # acc = (TP) / TP + FP
+        """
+        acc = (TP) / TP + FP
+        :return: return each category pixel accuracy(A more accurate way to call it precision)
+         like [0.90, 0.80, 0.96]: [class1 acc, class2 acc, class3 acc]
+        """
         classAcc = np.diag(self.confusion_matrix) / self.confusion_matrix.sum(axis=1)
-        return classAcc  # 返回的是一个列表值，如：[0.90, 0.80, 0.96]，表示类别1 2 3各类别的预测准确率
+        return classAcc
 
-    def meanPixelAccuracy(self):
-        classAcc = self.classPixelAccuracy()
-        meanAcc = np.nanmean(classAcc)  # np.nanmean 求平均值，nan表示遇到Nan类型，其值取为0
-        return meanAcc  # 返回单个值，如：np.nanmean([0.90, 0.80, 0.96, nan, nan]) = (0.90 + 0.80 + 0.96） / 3 =  0.89
+    def mean_pixel_accuracy(self):
+        classAcc = self.class_pixel_accuracy()
+        meanAcc = np.nanmean(classAcc)
+        return meanAcc
+
+    def __call__(self, pred, label):
+        """
+       :param pred: [N, H, W]
+       :param label: [N, H, W]
+       """
+        pred = pred.cpu().numpy()
+        label = label.cpu().numpy()
+
+        assert pred.shape == label.shape
+
+        self.confusion_matrix += self.fast_hist(pred.reshape(-1), label.reshape(-1)).astype("uint64")
+

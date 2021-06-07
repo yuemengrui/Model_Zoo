@@ -3,6 +3,7 @@
 # @Time : 2021-06-02 下午2:47
 from model import UNet
 from dataset import TableSegDataset
+from score import SegScore
 import argparse
 import random
 import numpy as np
@@ -12,13 +13,12 @@ import torch.optim as optim
 import torch.nn.functional as F
 import logging
 
-
 logging.basicConfig(level=logging.INFO)
 torch.autograd.set_detect_anomaly(True)
 
 
-def load_model(device, checkpoint_path=None):
-    model = UNet(num_classes=5)
+def load_model(device, num_classes, checkpoint_path=None):
+    model = UNet(num_classes=num_classes)
 
     if checkpoint_path is not None:
         logging.info("resume checkpoint from {}".format(checkpoint_path))
@@ -34,7 +34,7 @@ def lr_step(i):
     return max(1 / (i + 100) + a, 0.0001)
 
 
-def eval_net(model, loader, device):
+def eval_net(model, loader, device, seg_score):
     model.eval()
     n_val = len(loader)
     loss = 0
@@ -44,16 +44,24 @@ def eval_net(model, loader, device):
         label = label.to(device=device)
 
         with torch.no_grad():
-            pred = model(img)
-            pred = pred.permute(0, 2, 3, 1)
-            pred = pred.contiguous().view(-1, pred.size()[-1])
+            model_pred = model(img)
 
+        pred = model_pred.permute(0, 2, 3, 1)
+        pred = pred.contiguous().view(-1, pred.size()[-1])
         loss += F.cross_entropy(pred, label.contiguous().view(-1)).item()
 
-    return loss / n_val
+        score_pred = torch.argmax(F.softmax(model_pred, dim=1), dim=1)
+        seg_score(score_pred, label)
+
+    ious = seg_score.get_ious()
+    miou = seg_score.get_miou()
+    class_pixel_acc = seg_score.class_pixel_accuracy()
+    macc = seg_score.mean_pixel_accuracy()
+
+    return loss / n_val, ious, miou, class_pixel_acc, macc
 
 
-def train_model(model, device, dataset_dir, batch_size, lr, epochs):
+def train_model(model, device, dataset_dir, batch_size, lr, epochs, num_classes):
     train_dataset = TableSegDataset(data_dir=dataset_dir, mode='train')
     val_dataset = TableSegDataset(data_dir=dataset_dir, mode='val')
 
@@ -64,6 +72,7 @@ def train_model(model, device, dataset_dir, batch_size, lr, epochs):
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_step)
 
     loss_fn = torch.nn.CrossEntropyLoss()
+    seg_score = SegScore(num_classes)
 
     logging.info('------ train start ------')
     best_acc = 0
@@ -90,8 +99,9 @@ def train_model(model, device, dataset_dir, batch_size, lr, epochs):
             optimizer.step()
 
             if global_iter % 10 == 0:
-                logging.info("epoch:{}, global_iter: {}, train_loss:{}, lr:{}".format(epoch, global_iter, str(loss.item())[:6],
-                                                                               str(scheduler.get_lr()[0])[:10]))
+                logging.info(
+                    "epoch:{}, global_iter: {}, train_loss:{}, lr:{}".format(epoch, global_iter, str(loss.item())[:6],
+                                                                             str(scheduler.get_lr()[0])[:10]))
 
                 scheduler.step(global_iter)
         # epoch_loss /= (iter + 1)
@@ -100,18 +110,19 @@ def train_model(model, device, dataset_dir, batch_size, lr, epochs):
 
         if epoch != 0 and (epoch + 1) % 10 == 0:
             logging.info('------ val start ------')
-            val_loss = eval_net(model, val_loader, device)
-            logging.info("val_loss: {}".format(val_loss))
+            val_loss, ious, miou, class_pixel_acc, macc = eval_net(model, val_loader, device, seg_score)
+            logging.info(
+                "val_loss: {}, ious: {}, mIou: {}, CPA: {}, mAcc: {}".format(val_loss, ious, miou, class_pixel_acc,
+                                                                             macc))
             logging.info('------ val end ------')
-            if 1 - val_loss > best_acc:
-                best_acc = 1 - val_loss
+            if miou > best_acc:
+                best_acc = miou
 
-            torch.save(model.state_dict(),
-                       './checkpoints/best_acc/best_acc_{}_{}.pkl'.format(str(best_acc)[:6], str(epoch)))
+            torch.save(model.state_dict(), './checkpoints/best_acc/mIou_{}.pkl'.format(str(best_acc)[:6]))
 
         if epoch != 0 and (epoch + 1) % 100 == 0:
             torch.save(model.state_dict(),
-                       './checkpoints/{}_{}.pkl'.format(str(best_acc)[:6], str(epoch)))
+                       './checkpoints/mIou_{}_{}.pkl'.format(str(best_acc)[:6], str(epoch)))
 
 
 def main():
@@ -121,6 +132,7 @@ def main():
     parser.add_argument('--dataset_dir', default='./table_segmentation_dataset')
     parser.add_argument('--seed', default=1000, help="Please give a value for seed")
     parser.add_argument('--init_lr', default=0.01, help="Please give a value for init_lr")
+    parser.add_argument('--num_classes', default=5, help="Please give a value for num_classes")
     parser.add_argument('--epochs', default=500, help="Please give a value for epochs")
     parser.add_argument('--resume_model', default=None, help="Please give a value for epochs")
 
@@ -135,11 +147,11 @@ def main():
 
     device = 'cuda'
     if args.resume_model:
-        model = load_model(device, args.resume_model)
+        model = load_model(device, args.num_classes, args.resume_model)
     else:
-        model = load_model(device)
+        model = load_model(device, args.num_classes)
 
-    train_model(model, device, args.dataset_dir, args.batch_size, args.init_lr, args.epochs)
+    train_model(model, device, args.dataset_dir, args.batch_size, args.init_lr, args.epochs, args.num_classes)
 
 
 if __name__ == '__main__':
