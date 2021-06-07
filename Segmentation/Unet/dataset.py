@@ -12,12 +12,16 @@ from torchvision import transforms
 
 class TableSegDataset(Dataset):
 
-    def __init__(self, data_dir, mode='train', target_size=(608, 608)):
+    def __init__(self, data_dir, mode='train', target_size=(608, 608), batch_size=2):
         assert mode in ['train', 'val']
         self.mode = mode
         self.target_size = target_size
         self.img_list = []
         self.label_list = []
+        if batch_size > 1:
+            self.img_32n = False
+        else:
+            self.img_32n = True
         self.transform = transforms.Compose([transforms.ToTensor(),
                                              transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
                                              ])
@@ -48,16 +52,23 @@ class TableSegDataset(Dataset):
         img = cv2.imread(img_path)
         h, w = img.shape[:2]
         label_img = np.uint8(np.zeros((h, w)))
-        label_img = self._create_label_img(label_path, label_img)
+        label_img = self.__create_label_img(label_path, label_img)
+
+        if self.img_32n:
+            h_scale = int(h // 32) if int(h // 32) > 2 else 2
+            w_scale = int(w // 32) if int(w // 32) > 2 else 2
+            self.target_size = (32 * w_scale, 32 * h_scale)
+
         img = cv2.resize(img, self.target_size)
-        label_img = cv2.resize(label_img, self.target_size)
+        label_img = cv2.resize(label_img, self.target_size, interpolation=cv2.INTER_NEAREST)
         img = self.transform(img)
         return img, label_img.astype(np.int64)
+        # return img, label_img
 
     def __len__(self):
         return len(self.label_list)
 
-    def _create_label_img(self, label_path, label_img):
+    def __create_label_img(self, label_path, label_img):
         with open(label_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
@@ -109,15 +120,26 @@ class TableSegDataset(Dataset):
 
 if __name__ == '__main__':
     dataset = TableSegDataset(
-        data_dir='/Users/yuemengrui/MyWork/Table_Segmentation/dataset_handle/table_segmentation_dataset', mode='val')
+        data_dir='/Users/yuemengrui/MyWork/Table_Segmentation/dataset_handle/table_segmentation_dataset', mode='val', batch_size=1)
 
-    train_loader = DataLoader(dataset, batch_size=2, shuffle=True, drop_last=True)
+    # train_loader = DataLoader(dataset, batch_size=2, shuffle=True, drop_last=True)
 
-    for (img, label) in train_loader:
-        print(img.shape)
-        print(label.shape)
-        print("===============================================")
+    for img, label in dataset:
+        # print(img.shape)
+        # print(label.shape)
+        # print("===============================================")
         # cv2.imshow('xx', img)
         # cv2.waitKey(0)
         # cv2.imshow('label', label)
         # cv2.waitKey(0)
+        # im = img.copy()
+        # im[label == 0] = [0, 0, 255]
+        # im[label == 1] = [0, 0, 0]
+        # im[label == 2] = [255, 0, 255]
+        # im[label == 3] = [0, 255, 255]
+        # im[label == 4] = [255, 0, 0]
+        # show = cv2.addWeighted(img, 0.6, im, 0.4, 0)
+        # cv2.imshow('show', show)
+        # cv2.waitKey(0)
+        label = label.reshape(-1)
+        print(np.bincount(label))
